@@ -1,4 +1,6 @@
+// -------------------------
 // 검색 실행
+// -------------------------
 async function runSearch() {
   const keyword = document.getElementById("keyword").value;
   document.getElementById("output").innerHTML = "검색 중…";
@@ -6,10 +8,15 @@ async function runSearch() {
   const youtubeData = await fetchYouTube(keyword);
   const naverData = await fetchNaver(keyword);
 
+  // 1) 먼저 결과를 AI 없이 화면에 즉시 출력
   document.getElementById("output").innerHTML =
     "<h2>결과</h2>" +
-    (await renderResults("YouTube", youtubeData)) +
-    (await renderResults("Naver 블로그/카페", naverData));
+    renderResultsImmediate("YouTube", youtubeData, "yt") +
+    renderResultsImmediate("Naver 블로그/카페", naverData, "nv");
+
+  // 2) 이후 AI 분석은 비동기로 실행하여 각 아이템의 div를 업데이트
+  runAIUpdates(youtubeData, "yt");
+  runAIUpdates(naverData, "nv");
 }
 
 // -------------------------
@@ -58,30 +65,41 @@ function extract(text, regex) {
 }
 
 // -------------------------
-// 렌더링 + AI 분석
+// 결과 즉시 렌더링 버전 (빠르게 먼저 보여줌)
 // -------------------------
-async function renderResults(platform, items) {
+function renderResultsImmediate(platform, items, prefix) {
   let html = `<h3>${platform}</h3><div class="result">`;
 
-  for (const item of items) {
+  items.forEach((item, idx) => {
     html += `
       <div>
         <b>${item.title}</b><br>
         <a href="${item.link}" target="_blank">${item.link}</a><br>
         조회수: ${item.views || '-'} / 업로드: ${item.published || '-'}
         <hr>
+        <div id="${prefix}-analysis-${idx}">AI 분석 중…</div>
+      </div>
     `;
-
-    // -------------------------
-    // 🔥 여기서 AI 분석 실행
-    // -------------------------
-    const analysis = await analyzeText(item.title);
-    html += `<pre>${analysis}</pre>`;
-
-    html += `</div>`;
-  }
+  });
 
   return html + "</div>";
+}
+
+// -------------------------
+// AI 분석 비동기 업데이트 실행
+// -------------------------
+async function runAIUpdates(items, prefix) {
+  for (let i = 0; i < items.length; i++) {
+    const target = document.getElementById(`${prefix}-analysis-${i}`);
+    const text = items[i].title;
+
+    try {
+      const analysis = await analyzeText(text);
+      target.innerHTML = `<pre>${analysis}</pre>`;
+    } catch (e) {
+      target.innerHTML = "AI 분석 실패";
+    }
+  }
 }
 
 // -------------------------
