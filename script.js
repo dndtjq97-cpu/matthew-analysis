@@ -1,83 +1,77 @@
-// -------------------------
-// 검색 실행
-// -------------------------
+// ========================
+//  YouTube API 설정
+// ========================
+const API_KEY = "AIzaSyDDWh0l7ysHwn86_pXvR_dMYd69ARdhBjw";
+const YT_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
+const YT_VIDEO_URL = "https://www.googleapis.com/youtube/v3/videos";
+
+// ========================
+//  검색 실행
+// ========================
 async function runSearch() {
   const keyword = document.getElementById("keyword").value;
   document.getElementById("output").innerHTML = "검색 중…";
 
+  // 1) 유튜브 검색 결과 불러오기
   const youtubeData = await fetchYouTube(keyword);
-  const naverData = await fetchNaver(keyword);
 
-  // 1) 먼저 결과를 AI 없이 화면에 즉시 출력
+  // 2) 결과 먼저 화면에 즉시 표시
   document.getElementById("output").innerHTML =
-    "<h2>결과</h2>" +
-    renderResultsImmediate("YouTube", youtubeData, "yt") +
-    renderResultsImmediate("Naver 블로그/카페", naverData, "nv");
+    "<h2>검색 결과</h2>" + renderResultsImmediate(youtubeData);
 
-  // 2) 이후 AI 분석은 비동기로 실행하여 각 아이템의 div를 업데이트
-  runAIUpdates(youtubeData, "yt");
-  runAIUpdates(naverData, "nv");
+  // 3) 각 영상에 대해 AI 분석 비동기 실행
+  runAIUpdates(youtubeData);
 }
 
-// -------------------------
-// YouTube 검색 결과 가져오기
-// -------------------------
+// ========================
+//  YouTube 검색 API 호출
+// ========================
 async function fetchYouTube(keyword) {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(keyword)}`;
-  const html = await fetch(url).then(r => r.text());
+  const url =
+    `${YT_SEARCH_URL}?part=snippet&type=video&maxResults=5&q=${encodeURIComponent(keyword)}&key=${API_KEY}`;
 
-  const videoRegex = /"videoRenderer":\{([\s\S]*?)\}/g;
-  const results = [...html.matchAll(videoRegex)].slice(0, 5);
+  const res = await fetch(url);
+  const data = await res.json();
 
-  return results.map(x => {
-    const block = x[1];
-    return {
-      title: extract(block, /"text":"([^"]+)/),
-      link: "https://www.youtube.com/watch?v=" + extract(block, /"videoId":"([^"]+)/),
-      views: extract(block, /"viewCountText":\{"simpleText":"([^"]+)/),
-      published: extract(block, /"publishedTimeText":\{"simpleText":"([^"]+)/)
-    };
-  });
-}
+  const videoIds = data.items.map(item => item.id.videoId).join(",");
 
-// -------------------------
-// 네이버 검색 결과 가져오기
-// -------------------------
-async function fetchNaver(keyword) {
-  const url = `https://search.naver.com/search.naver?query=${encodeURIComponent(keyword)}`;
-  const html = await fetch(url).then(r => r.text());
+  const detailUrl =
+    `${YT_VIDEO_URL}?part=statistics,contentDetails,snippet&id=${videoIds}&key=${API_KEY}`;
 
-  const postRegex = /<a href="(https?:\/\/blog\.naver\.com[^"]+)"[\s\S]*?title="([^"]+)"/g;
-  const results = [...html.matchAll(postRegex)].slice(0, 5);
+  const detailRes = await fetch(detailUrl);
+  const detailData = await detailRes.json();
 
-  return results.map(x => ({
-    link: x[1],
-    title: x[2]
+  return detailData.items.map(item => ({
+    id: item.id,
+    title: item.snippet.title,
+    desc: item.snippet.description,
+    channel: item.snippet.channelTitle,
+    thumb: item.snippet.thumbnails.medium.url,
+    published: item.snippet.publishedAt,
+    views: item.statistics.viewCount,
+    likes: item.statistics.likeCount,
+    comments: item.statistics.commentCount,
+    link: `https://www.youtube.com/watch?v=${item.id}`
   }));
 }
 
-// -------------------------
-// 텍스트 추출 보조 함수
-// -------------------------
-function extract(text, regex) {
-  const m = text.match(regex);
-  return m ? m[1] : "-";
-}
-
-// -------------------------
-// 결과 즉시 렌더링 버전 (빠르게 먼저 보여줌)
-// -------------------------
-function renderResultsImmediate(platform, items, prefix) {
-  let html = `<h3>${platform}</h3><div class="result">`;
+// ========================
+//  결과 즉시 렌더링 (AI 없음)
+// ========================
+function renderResultsImmediate(items) {
+  let html = `<div class="result">`;
 
   items.forEach((item, idx) => {
     html += `
       <div>
         <b>${item.title}</b><br>
+        채널: ${item.channel}<br>
+        조회수: ${item.views} / 좋아요: ${item.likes} / 댓글: ${item.comments}<br>
+        업로드: ${item.published}<br>
         <a href="${item.link}" target="_blank">${item.link}</a><br>
-        조회수: ${item.views || '-'} / 업로드: ${item.published || '-'}
+        <img src="${item.thumb}">
         <hr>
-        <div id="${prefix}-analysis-${idx}">AI 분석 중…</div>
+        <div id="analysis-${idx}">AI 분석 중…</div>
       </div>
     `;
   });
@@ -85,13 +79,13 @@ function renderResultsImmediate(platform, items, prefix) {
   return html + "</div>";
 }
 
-// -------------------------
-// AI 분석 비동기 업데이트 실행
-// -------------------------
-async function runAIUpdates(items, prefix) {
+// ========================
+//  각 아이템에 대해 AI 분석 실행
+// ========================
+async function runAIUpdates(items) {
   for (let i = 0; i < items.length; i++) {
-    const target = document.getElementById(`${prefix}-analysis-${i}`);
-    const text = items[i].title;
+    const target = document.getElementById(`analysis-${i}`);
+    const text = `${items[i].title}\n${items[i].desc}`;
 
     try {
       const analysis = await analyzeText(text);
@@ -102,20 +96,21 @@ async function runAIUpdates(items, prefix) {
   }
 }
 
-// -------------------------
-// AI 분석 함수 (Ollama llama3)
-// -------------------------
+// ========================
+//  로컬 AI 분석 (Ollama Llama3)
+// ========================
 async function analyzeText(text) {
   const prompt = `
   아래 텍스트를 분석해줘.
 
   1) 핵심 요약  
-  2) 밀리의서재 언급 맥락  
-  3) 도서/브랜드 이미지 분석  
-  4) 감성(긍정/부정/중립)  
-  5) 주요 키 메시지 3개  
-  6) 마케팅 관점 인사이트 3개  
-  7) 리스크 포인트 2개
+  2) 주요 키 메시지 3개  
+  3) 감성(긍정/부정/중립)  
+  4) 논조 분석  
+  5) 콘텐츠 성격(정보성/오락성/홍보성 등)  
+  6) 인사이트 3개  
+  7) 리스크 포인트 2개  
+  8) '밀리의서재'와의 연관성 자동 판단
 
   ---
   분석할 텍스트:
